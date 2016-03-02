@@ -1,5 +1,14 @@
 <?php
 namespace AspectMock\Core;
+use AspectMock\Core\StubHandlers\ClassMagicMethodHandler;
+use AspectMock\Core\StubHandlers\ClassMethodHandler;
+use AspectMock\Core\StubHandlers\ClassStaticMagicMethodHandler;
+use AspectMock\Core\StubHandlers\ClassStaticMethodHandler;
+use AspectMock\Core\StubHandlers\InheritanceMagicMethodHandler;
+use AspectMock\Core\StubHandlers\InheritanceMethodHandler;
+use AspectMock\Core\StubHandlers\InheritanceStaticMagicMethodHandler;
+use AspectMock\Core\StubHandlers\InstanceMagicMethodHandler;
+use AspectMock\Core\StubHandlers\InstanceMethodHandler;
 use AspectMock\Intercept\FunctionInjector;
 use Go\Aop\Aspect;
 use AspectMock\Intercept\MethodInvocation;
@@ -67,59 +76,50 @@ class Mocker implements Aspect {
 
         $obj = $invocation->getThis();
 
-        if (is_object($obj)) {
+        $handlers = [
+
             // instance method
-            $params = $this->getObjectMethodStubParams($obj, $method);
-            if ($params !== false) return $this->stub($invocation, $params);
+            new InstanceMethodHandler(),
 
             // class method
-            $params = $this->getClassMethodStubParams(get_class($obj), $method);
-            if ($params !== false) return $this->stub($invocation, $params);
+            new ClassMethodHandler(),
 
             // inheritance
-            $params = $this->getClassMethodStubParams($invocation->getDeclaredClass(), $method);
-            if ($params !== false) return $this->stub($invocation, $params);
+            new InheritanceMethodHandler(),
 
-            // magic methods
-            if ($method == '__call') {
-                $args = $invocation->getArguments();
-                $method = array_shift($args);
+            // magic instance method
+            new InstanceMagicMethodHandler(),
 
-                $params = $this->getObjectMethodStubParams($obj, $method);
-                if ($params !== false) return $this->stubMagicMethod($invocation, $params);
+            // magic class method
+            new ClassMagicMethodHandler(),
 
-                // magic class method
-                $params = $this->getClassMethodStubParams(get_class($obj), $method);
-                if ($params !== false) return $this->stubMagicMethod($invocation, $params);
+            // magic inheritance
+            new InheritanceMagicMethodHandler(),
 
-                // inheritance
-                $calledClass = $invocation->getDeclaredClass();
-                $params = $this->getClassMethodStubParams($calledClass, $method);
-                if ($params !== false) return $this->stubMagicMethod($invocation, $params);
-            }
-        } else {
-            // static method
-            $params = $this->getClassMethodStubParams($obj, $method);
-            if ($params !== false) return $this->stub($invocation, $params);
+            // class static method
+            new ClassStaticMethodHandler(),
 
-            // magic static method (facade)
-            if ($method == '__callStatic') {
-                $args = $invocation->getArguments();
-                $method = array_shift($args);
+            // magic class static method
+            new ClassStaticMagicMethodHandler(),
 
-                $params = $this->getClassMethodStubParams($obj, $method);
-                if ($params !== false) return $this->stubMagicMethod($invocation, $params);
+            // magic inheritance static method
+            new InheritanceStaticMagicMethodHandler(),
 
-                // inheritance
-                $calledClass = $invocation->getDeclaredClass();
-                $params = $this->getClassMethodStubParams($calledClass, $method);
-                if ($params !== false) return $this->stubMagicMethod($invocation, $params);
+        ];
+
+        $result = __AM_CONTINUE__;
+
+        foreach ($handlers as $handler) {
+            $result = $handler->handle($this, $invocation);
+            if ($result !== __AM_CONTINUE__) {
+                return $result;
             }
         }
-        return __AM_CONTINUE__;
+
+        return $result;
     }
 
-    protected function getObjectMethodStubParams($obj, $method_name)
+    public function getObjectMethodStubParams($obj, $method_name)
     {
         $oid = spl_object_hash($obj);
         if (!isset($this->objectMap[$oid])) return false;
@@ -128,7 +128,7 @@ class Mocker implements Aspect {
         return $params;
     }
 
-    protected function getClassMethodStubParams($class_name, $method_name)
+    public function getClassMethodStubParams($class_name, $method_name)
     {
         if (!isset($this->classMap[$class_name])) return false;
         $params = $this->classMap[$class_name];
@@ -136,7 +136,7 @@ class Mocker implements Aspect {
         return $params;
     }
 
-    protected function stub(MethodInvocation $invocation, $params)
+    public function stub(MethodInvocation $invocation, $params)
     {
         $name = $invocation->getMethod();
 
@@ -152,7 +152,7 @@ class Mocker implements Aspect {
         return call_user_func_array($replacedMethod, $invocation->getArguments());
     }
 
-    protected function stubMagicMethod(MethodInvocation $invocation, $params)
+    public function stubMagicMethod(MethodInvocation $invocation, $params)
     {
         $args = $invocation->getArguments();
         $name = array_shift($args);
